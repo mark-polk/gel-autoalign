@@ -1,54 +1,190 @@
 # gel-autoalign
 
-`gel_autoalign.py` automatically straightens and crops gel images (TIFF). It finds the gel slab with classical OpenCV image processing (blur → Otsu threshold → largest object → edge line fits), measures its tilt, and rotates and crops in a single resampling step. If the tilt is negligible, it does an exact integer crop with no interpolation.
+Automatically straightens and crops gel images (TIFF files).
 
-It's deterministic, with no machine learning and no random numbers: the same input, parameters and library versions give a byte-identical output.
+Point it at a gel image, or a whole folder of them, and it will:
 
-## Setup
+1. find the gel in the picture,
+2. measure how crooked it is,
+3. rotate it straight and crop away the empty background, and
+4. save the result as a new file, leaving your original untouched.
+
+It can also stamp a label (such as the file name) in the corner of the gel.
+
+It uses standard image processing (OpenCV), not AI. The same image always gives exactly the same result.
+
+---
+
+## One-time setup
+
+You only need to do this once per computer. It takes about 10 minutes.
+
+### Step 1: Install Miniforge
+
+Miniforge is a free installer that sets up Python and the tools this script needs, without touching anything else on your computer.
+
+**Mac**
+
+1. Open the **Terminal** app. Press ⌘+Space, type `Terminal`, then press Enter.
+2. Copy and paste this line into Terminal, then press Enter:
+
+   ```bash
+   curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+   ```
+
+3. Then paste this line and press Enter:
+
+   ```bash
+   bash Miniforge3-$(uname)-$(uname -m).sh
+   ```
+
+4. Press Enter to scroll through the license, type `yes` to accept, and press Enter to accept the default install location. When it asks whether to initialize ("conda init"), type `yes`.
+5. **Close the Terminal window and open a new one.** Your prompt should now start with `(base)`.
+
+**Windows**
+
+1. Download the Windows installer (`Miniforge3-Windows-x86_64.exe`) from the [Miniforge download page](https://github.com/conda-forge/miniforge#download).
+2. Run it and accept the defaults.
+3. From the Start menu, open **Miniforge Prompt**. On Windows, type every command in this guide into the Miniforge Prompt, not the regular Command Prompt.
+
+**Linux:** follow the Mac steps in your usual terminal.
+
+> Already have Anaconda, Miniconda or Miniforge? Skip to Step 2.
+
+### Step 2: Download this tool
+
+1. On this GitHub page, click the green **Code** button, then **Download ZIP**.
+2. Unzip it and move the `gel-autoalign` folder somewhere you'll remember, such as your Documents folder.
+
+(If you use git, you can run `git clone` instead.)
+
+### Step 3: Install the tool's software
+
+1. In Terminal (or Miniforge Prompt), type `cd` followed by a space. **Don't press Enter yet.**
+2. Drag the `gel-autoalign` folder from Finder (or File Explorer) into the Terminal window. Its location appears after `cd`. Now press Enter.
+3. Paste this line and press Enter:
+
+   ```bash
+   conda env create -f environment.yml
+   ```
+
+   This downloads everything the script needs into a self-contained environment called `gel-autoalign`. It takes a few minutes. When the prompt comes back, setup is done.
+
+---
+
+## Using it
+
+### 1. Open Terminal and turn on the environment
+
+You need to do this each time you open a new Terminal window:
 
 ```bash
-mamba env create -f environment.yml
-mamba activate gel-autoalign
-python gel_autoalign.py --help
+conda activate gel-autoalign
 ```
 
-`environment.lock.yml` records the exact package versions the tool was last set up with. To reproduce that environment exactly, run `mamba env create -f environment.lock.yml`.
+Your prompt now starts with `(gel-autoalign)` instead of `(base)`.
 
-## Usage
+### 2. Run the script on your gels
+
+The easiest way is to drag things into the Terminal window instead of typing their locations:
+
+1. Type `python` followed by a space.
+2. Drag the file **`gel_autoalign.py`** (inside the `gel-autoalign` folder) into the window, then type a space.
+3. Drag in **your gel image**, or **a folder of gel images**.
+4. Press Enter.
+
+The line will look something like this:
 
 ```bash
-python gel_autoalign.py gel.tif                     # one file
-python gel_autoalign.py /path/to/folder             # every .tif/.tiff in the folder
-python gel_autoalign.py /path/to/folder --watch     # keep processing new files as they appear
-python gel_autoalign.py gel.tif --pad 40            # margin around the gel in pixels (default 20)
-python gel_autoalign.py gel.tif --debug             # also write a side-by-side QC PNG
-python gel_autoalign.py gel.tif --label "MP-02 PCR" # also write a labeled copy
-python gel_autoalign.py folder --label "{name}"     # label each gel with its file name
+python /Users/you/Documents/gel-autoalign/gel_autoalign.py /Users/you/Desktop/my_gels
 ```
 
-Label options:
+For each image you'll see a line like:
 
-- `--label TEXT` prints the text at the gel's bottom-right on an extra copy. `{name}` is replaced by each input file's name (without extension).
-- `--label-color` sets the label color as a name (`magenta`, the default, or `green`, `yellow`, `cyan`, `orange`, `red`, `blue`), as `#RRGGBB`, or as `R,G,B`.
-- `--label-size` sets the font size in pixels. By default it's chosen automatically and shrunk to fit inside the gel.
-- `--font` sets the font file to use. The default is `fonts/lmsans10-bold.otf` (Latin Modern Sans Bold, bundled).
+```
+OK    gel1.tif: rotated +1.37 deg, 2048x1536 -> 1702x1210
+```
 
-Other options: `-o/--outdir`, `--interp {cubic,linear,lanczos}`, `--angle-tol`, `--suffix`, `--force`. Run `--help` for details.
+`OK` means it worked. `WARN` means it worked but something looked unusual, so check that image by eye. `FAIL` means it couldn't process that image. The reason is printed next to it.
 
-## Outputs
+### 3. Find your results
 
-Outputs are written to an `aligned/` folder next to each input, unless you set `-o`:
+The results go into a new folder called **`aligned`**, created next to your original images. **Your original files are never changed.**
 
-| File | Contents |
+## Common options
+
+Add these at the end of the command, after the image or folder:
+
+| What you want | Add this |
 |---|---|
-| `<name>_aligned.tif` | Straightened, cropped gel. Lossless (zlib), with the same bit depth, channels and DPI as the input. |
-| `<name>_aligned.json` | Record of the run: input/output SHA-256, parameters, detected angle and geometry, transform matrix, warnings, library versions, and the script's git state (`script_git`). |
-| `<name>_aligned_labeled.tif` | Only written with `--label`. A labeled display copy. |
-| `<name>_aligned_debug.png` | Only written with `--debug`. Side-by-side QC image showing the detection and the result. |
+| Label each gel with its own file name | `--label "{name}"` |
+| Label with your own text | `--label "MP-02 PCR"` |
+| Change the label color | `--label-color yellow` (also `magenta` (the default), `green`, `cyan`, `orange`, `red`, `blue`, or a hex code like `#FF8800`) |
+| Make the label bigger or smaller | `--label-size 60` (in pixels; by default it's sized automatically) |
+| Use a different font | `--font /path/to/font.ttf` |
+| Leave more margin around the gel | `--pad 40` (in pixels; the default is 20) |
+| Also save a "before / after" check image | `--debug` |
+| Keep running and process new images as they appear in a folder | `--watch` (press Ctrl+C to stop) |
+| Redo images that were already processed | `--force` |
 
-## Caveats
+You can combine them. For example, this processes every gel in a folder, labels each one with its file name, and saves check images. (As before, you can drag in the script and the folder instead of typing them.)
 
-- **Rotation resamples pixels.** For densitometry or any quantification, use the raw imager files, not the aligned output.
-- **The script removes tilt but doesn't decide orientation.** It corrects tilt modulo 90° and doesn't know which side is "up", so place gels on the imager in a consistent orientation.
-- **The labeled copy is an 8-bit RGB display file** with the text burned in. The plain `_aligned.tif` is never modified by labeling and remains the clean record.
-- **Originals are never modified.** Outputs always go to a separate folder.
+```bash
+python gel_autoalign.py my_gels --label "{name}" --debug
+```
+
+The quotes around `"{name}"` are needed.
+
+To see every option, run `python gel_autoalign.py --help`.
+
+## What you get
+
+For an input called `gel1.tif`, the `aligned` folder will contain:
+
+| File | What it is |
+|---|---|
+| `gel1_aligned.tif` | The straightened, cropped gel. It keeps the full quality of the original (same bit depth and resolution, lossless compression). |
+| `gel1_aligned.json` | A record of exactly what was done: the rotation angle, settings, file checksums and software versions. Keep it with your data. |
+| `gel1_aligned_labeled.tif` | Only made if you used `--label`. A labeled copy for slides and figures. |
+| `gel1_aligned_debug.png` | Only made if you used `--debug`. A side-by-side image showing what the script detected and the result. |
+
+## Important limitations
+
+- **Don't use the output for quantification.** Rotating an image slightly changes its pixel values. For densitometry or any band quantification, always use the raw files from the imager.
+- **It straightens, but it doesn't flip.** It removes tilt, but it can't tell which side of the gel is "up". Place gels on the imager in the same orientation every time.
+- **The labeled copy is for display only.** It's converted to an 8-bit color image with the text burned in. The plain `_aligned.tif` is never labeled and stays the clean record.
+- **Originals are never modified.** Results always go into a separate folder.
+- **The `.json` record contains the full folder paths of your files.** Keep that in mind before sharing it.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `conda: command not found` | Close Terminal and open a new window. If it still happens, re-run the Miniforge installer and answer `yes` to the "conda init" question. On Windows, make sure you're in **Miniforge Prompt**. |
+| `Shell not initialized` after typing `mamba activate` | Use `conda activate gel-autoalign` instead. |
+| `No module named cv2` (or `numpy`, `tifffile`, `PIL`) | You forgot to turn on the environment. Run `conda activate gel-autoalign`. |
+| `can't open file 'gel_autoalign.py'` | Terminal can't find the script. Drag `gel_autoalign.py` into the window instead of typing its name. |
+| `SKIP ... output exists` | That image was already processed. Add `--force` to redo it. |
+| A gel came out cropped wrong | Run it again with `--debug` and look at the `_debug.png` image. The script works best when the gel clearly stands out from an even background and doesn't touch the edge of the photo. |
+
+## Updating
+
+Download the new ZIP (or run `git pull`), then turn on the environment and update it:
+
+```bash
+conda activate gel-autoalign
+conda env update -f environment.yml
+```
+
+---
+
+## For the technically inclined
+
+- The script is a single file, `gel_autoalign.py`. How it detects the gel: Gaussian blur → Otsu threshold → largest object → robust line fits to the four edges, starting from OpenCV's minimum-area rectangle. Rotation and cropping happen in one resampling step (cubic by default; set with `--interp`). If the tilt is below `--angle-tol`, it does an exact integer crop with no interpolation.
+- `environment.yml` is the file to install from, on any operating system. `environment.lock.yml` records the exact versions last tested on macOS (Apple Silicon). It's there for reproducibility and won't install on other platforms.
+- When the script is run from a git checkout, each `.json` record includes the script's git commit under `script_git`.
+- `.gitignore` excludes all TIFFs and `aligned/` folders, so gel images can't be committed by accident.
+
+## Credits
+
+The label font is Latin Modern Sans Bold, by GUST e-foundry. It's included in `fonts/` under the GUST Font License (see `fonts/GUST-FONT-LICENSE.TXT`).

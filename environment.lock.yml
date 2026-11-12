@@ -1,3 +1,7 @@
+# Exact package versions this tool was last tested with (macOS, Apple Silicon).
+# Recorded for reproducibility. To install, use environment.yml instead:
+# it works on Mac, Windows and Linux. This file only installs on Apple Silicon Macs.
+# Regenerate: mamba env export --no-builds | grep -v '^prefix:' > environment.lock.yml
 name: gel-autoalign
 channels:
   - conda-forge
@@ -159,5 +163,3 @@ dependencies:
   - xorg-libxdmcp=1.1.5
   - zlib-ng=2.3.3
   - zstd=1.5.7
-
-prefix: "/Users/markpolk/miniforge3/envs/gel-autoalign"
