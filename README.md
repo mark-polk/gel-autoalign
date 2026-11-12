@@ -13,6 +13,10 @@ It can also stamp a label (such as the file name) in the corner of the gel.
 
 It uses standard image processing (OpenCV), not AI. The same image always gives exactly the same result.
 
+> **A friendly heads-up:** this was vibe coded (written with an AI assistant) for quick internal use, such as tidying up gels for lab notebooks, lab meetings and day-to-day sharing. It works well for that, but it hasn't been rigorously validated. Always look over the results yourself.
+>
+> When preparing gel images to share outside the lab, for a paper, a poster or a collaborator, take a bit more care. Keep the raw imager files, say what processing you did, and check the image guidelines of the journal or venue you're submitting to.
+
 ---
 
 ## One-time setup
