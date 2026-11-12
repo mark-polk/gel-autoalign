@@ -1,0 +1,9 @@
+name: gel-autoalign
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.10
+  - numpy
+  - opencv
+  - tifffile
+  - pillow

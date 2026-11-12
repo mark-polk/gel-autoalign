@@ -1,0 +1,8 @@
+# Gel images are unpublished data: never commit them.
+*.tif
+*.tiff
+*.TIF
+*.TIFF
+aligned/
+
+__pycache__/
