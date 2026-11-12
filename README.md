@@ -185,6 +185,8 @@ conda env update -f environment.yml
 - When the script is run from a git checkout, each `.json` record includes the script's git commit under `script_git`.
 - `.gitignore` excludes all TIFFs and `aligned/` folders, so gel images can't be committed by accident.
 
-## Credits
+## License and credits
+
+The code is released under the MIT License (see `LICENSE`). You're free to use, modify and share it.
 
 The label font is Latin Modern Sans Bold, by GUST e-foundry. It's included in `fonts/` under the GUST Font License (see `fonts/GUST-FONT-LICENSE.TXT`).
