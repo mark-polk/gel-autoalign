@@ -152,7 +152,7 @@ python gel_autoalign.py gel.tif --comb mini-sub-15 --lanes "1kb,WT,ΔabcA,,NTC"
 ```
 
 - **`--lanes`** lists the names from left to right, separated by commas. Leave an entry empty (`,,`) to skip an unloaded well. Wells after the last name stay unlabeled. Typing just a number, such as `--lanes 8`, labels the lanes 1 to 8.
-- Short names are written horizontally. If any name is too wide for its lane, all the labels are written at 45°.
+- Short names are written horizontally. If any name is too wide for its lane, all the labels are turned vertical, reading upward from just above their well. Use `--lane-angle 0`, `45` or `90` to force one style.
 - **`--lane-size`** sets the font size. **`--lane-color`** sets the color; by default it's black or white, whichever stands out against the background.
 
 Combs included:

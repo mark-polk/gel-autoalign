@@ -494,8 +494,12 @@ def parse_lanes(text: str, n_wells: int):
     return names
 
 
-def draw_lanes(rgb, names, centers_px, pitch_px, gel_top_px, font_path, size=None, color=None):
-    """Return (copy with lane labels in a new strip above the gel, info). Long labels are set at 45 deg."""
+def draw_lanes(rgb, names, centers_px, pitch_px, gel_top_px, font_path, size=None, color=None, angle="auto"):
+    """Return (copy with lane labels in a new strip above the gel, info).
+
+    angle: "auto" (horizontal if every label fits its lane, otherwise vertical), "0", "45" or "90".
+    Rotated labels read upward, starting just above their well.
+    """
     from PIL import Image, ImageDraw
 
     h, w = rgb.shape[:2]
@@ -508,14 +512,17 @@ def draw_lanes(rgb, names, centers_px, pitch_px, gel_top_px, font_path, size=Non
     widths = [font.getbbox(n)[2] - font.getbbox(n)[0] if n else 0 for n in names]
     x0, y0, x1, y1 = font.getbbox("Ag0")
     text_h = max(y1 - y0, 1)
-    angled = max(widths, default=0) > 0.9 * pitch_px
+    if angle == "auto":
+        theta = 90 if max(widths, default=0) > 0.9 * pitch_px else 0
+    else:
+        theta = int(angle)
+    ct, st = math.cos(math.radians(theta)), math.sin(math.radians(theta))
     gap = max(4, size // 3)
-    c45 = math.sqrt(0.5)
-    block = int(math.ceil((max(widths, default=0) + text_h) * c45)) if angled else text_h
+    block = int(math.ceil(max(widths, default=0) * st + text_h * ct)) if theta else text_h
     top = block + 2 * gap
     right = 0
-    if angled:
-        right = max([int(math.ceil(x + wd * c45 + text_h)) - w for x, wd in zip(centers_px, widths)] + [0])
+    if theta:
+        right = max([int(math.ceil(x + wd * ct + text_h)) - w for x, wd in zip(centers_px, widths)] + [0])
 
     canvas = Image.new("RGB", (w + right, h + top), bgc)
     canvas.paste(Image.fromarray(rgb), (0, top))
@@ -525,19 +532,19 @@ def draw_lanes(rgb, names, centers_px, pitch_px, gel_top_px, font_path, size=Non
     for name, x, wd in zip(names, centers_px, widths):
         if not name:
             continue
-        if not angled:
+        if not theta:
             draw.text((x, y_bottom), name, font=font, fill=fill, anchor="md")
             continue
         tw, th = wd + 2, text_h * 2
         tile = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
         ImageDraw.Draw(tile).text((0, th / 2), name, font=font, fill=fill + (255,), anchor="lm")
-        rot = tile.rotate(45, resample=Image.BICUBIC, expand=True)
-        px = rot.width / 2 - tw / 2 * c45   # where the start of the text ended up
-        py = rot.height / 2 + tw / 2 * c45
+        rot = tile.rotate(theta, resample=Image.BICUBIC, expand=True)
+        px = rot.width / 2 - tw / 2 * ct   # where the start of the text ended up
+        py = rot.height / 2 + tw / 2 * st
         canvas.paste(rot, (int(round(x - px)), int(round(y_bottom - py))), rot)
     info = {
         "font_size_px": size,
-        "angled_45deg": angled,
+        "angle_deg": theta,
         "color": list(fill),
         "added_top_px": top,
         "added_right_px": right,
@@ -660,7 +667,7 @@ def process_file(src: Path, outdir: Path, args) -> str:
             lanes_dbg = (centres, ww * gel_w, gel_top, gel_h)
             color = parse_color(args.lane_color) if args.lane_color else None
             display, linfo = draw_lanes(display, lane_names, centres[:len(lane_names)], pitch * gel_w,
-                                        gel_top, font_path, args.lane_size, color)
+                                        gel_top, font_path, args.lane_size, color, args.lane_angle)
             if linfo["missing_glyphs"]:
                 warnings.append("lane font has no glyph for: " + " ".join(linfo["missing_glyphs"]))
             prov_l["lanes"] = lane_names
@@ -790,6 +797,9 @@ def main(argv=None):
                     help="lane label font size in pixels (default: automatic from the well spacing)")
     ap.add_argument("--lane-color", default=None,
                     help="lane label color: name, #RRGGBB or R,G,B (default: black or white, whichever contrasts)")
+    ap.add_argument("--lane-angle", choices=["auto", "0", "45", "90"], default="auto",
+                    help="lane label rotation: auto (horizontal if all labels fit, else vertical), "
+                    "0, 45 or 90 degrees (default auto)")
     ap.add_argument("--preview", action="store_true",
                     help="also write a PNG preview and print only its path (for org-mode/notebooks); "
                     "always reprocesses")
