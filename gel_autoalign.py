@@ -302,7 +302,18 @@ def detect_gel(arr: np.ndarray):
     fill = area / max(width * height, 1.0)
     frac = area / (h * w)
     x, y, bw, bh = cv2.boundingRect(cnt)
-    if fill < 0.90:
+    # Well notches (PAGE gels) legitimately remove ~10% of the outline near an edge,
+    # (Mini-PROTEAN wells reach ~14% into the gel), so judge segmentation on the central
+    # 60% x 60% of the slab, in the slab's own frame.
+    R = np.array([[c, s], [-s, c]])
+    cw, ch = max(int(math.ceil(width)), 1), max(int(math.ceil(height)), 1)
+    t = np.array([(cw - 1) / 2, (ch - 1) / 2]) - R @ center
+    core = cv2.warpAffine(solid, np.hstack([R, t.reshape(2, 1)]), (cw, ch), flags=cv2.INTER_NEAREST)
+    core = core[int(0.2 * ch):int(0.8 * ch), int(0.2 * cw):int(0.8 * cw)]
+    core_fill = float(np.count_nonzero(core)) / max(core.size, 1)
+    if core_fill < 0.97:
+        warnings.append(f"slab interior is only {core_fill:.0%} filled; segmentation may be incomplete")
+    elif fill < 0.80:
         warnings.append(f"slab only fills {fill:.0%} of its bounding rectangle; segmentation may be incomplete")
     if frac < 0.02 or frac > 0.98:
         warnings.append(f"detected object covers {frac:.1%} of the image; check it is the gel")
@@ -317,6 +328,7 @@ def detect_gel(arr: np.ndarray):
         "size": (width, height),
         "corners": corners,
         "fill_ratio": float(fill),
+        "core_fill_ratio": core_fill,
         "area_fraction": float(frac),
         "background_gray": bg,
         "otsu_sigma_px": float(sigma),
@@ -705,6 +717,7 @@ def process_file(src: Path, outdir: Path, args) -> str:
             "gel_size_px": det["size"],
             "gel_corners_px": det["corners"].tolist(),
             "fill_ratio": det["fill_ratio"],
+            "core_fill_ratio": det["core_fill_ratio"],
             "gel_area_fraction": det["area_fraction"],
             "background_gray": det["background_gray"],
         },
