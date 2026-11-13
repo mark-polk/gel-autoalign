@@ -47,6 +47,7 @@ import json
 import math
 import sys
 import time
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -445,6 +446,95 @@ def draw_label(img: np.ndarray, text: str, color, pad: int, font_path, size=None
 
 
 # --------------------------------------------------------------------------
+# Lane labels from comb templates (display copy only)
+# --------------------------------------------------------------------------
+COMBS_FILE = Path(__file__).resolve().parent / "combs.toml"
+
+
+def load_combs(path=COMBS_FILE):
+    with open(path, "rb") as f:
+        return tomllib.load(f)
+
+
+def comb_geometry(name, combs):
+    """Return (well centres, pitch, well width), all as fractions of the gel width."""
+    if name not in combs.get("combs", {}):
+        raise ValueError(f"unknown comb '{name}'; available: {', '.join(combs.get('combs', {}))} "
+                         f"(defined in {COMBS_FILE.name})")
+    comb = combs["combs"][name]
+    system = combs["systems"][comb["system"]]
+    n = int(comb["wells"])
+    ww = comb["well_width_mm"] / system["gel_width_mm"]
+    first = system["first_well_left"] + ww / 2
+    last = system["last_well_right"] - ww / 2
+    if n == 1:
+        return [(first + last) / 2], last - first, ww
+    pitch = (last - first) / (n - 1)
+    return [first + i * pitch for i in range(n)], pitch, ww
+
+
+def parse_lanes(text: str, n_wells: int):
+    """'8' -> ['1'..'8']; 'L,A1,,NTC' -> names (empty = unlabeled well), filled from the left."""
+    t = text.strip()
+    names = [str(i) for i in range(1, int(t) + 1)] if t.isdigit() else [s.strip() for s in t.split(",")]
+    if len(names) > n_wells:
+        raise ValueError(f"--lanes has {len(names)} entries but the comb has only {n_wells} wells")
+    return names
+
+
+def draw_lanes(rgb, names, centers_px, pitch_px, gel_top_px, font_path, size=None, color=None):
+    """Return (copy with lane labels in a new strip above the gel, info). Long labels are set at 45 deg."""
+    from PIL import Image, ImageDraw
+
+    h, w = rgb.shape[:2]
+    edge = np.concatenate([rgb[:2].reshape(-1, 3), rgb[:, :2].reshape(-1, 3), rgb[:, -2:].reshape(-1, 3)])
+    bgc = tuple(int(v) for v in np.median(edge, axis=0))
+    if color is None:
+        color = (0, 0, 0) if sum(bgc) / 3 > 127 else (255, 255, 255)
+    size = int(size) if size else max(10, int(pitch_px * 0.5))
+    font = load_font(font_path, size)
+    widths = [font.getbbox(n)[2] - font.getbbox(n)[0] if n else 0 for n in names]
+    x0, y0, x1, y1 = font.getbbox("Ag0")
+    text_h = max(y1 - y0, 1)
+    angled = max(widths, default=0) > 0.9 * pitch_px
+    gap = max(4, size // 3)
+    c45 = math.sqrt(0.5)
+    block = int(math.ceil((max(widths, default=0) + text_h) * c45)) if angled else text_h
+    top = block + 2 * gap
+    right = 0
+    if angled:
+        right = max([int(math.ceil(x + wd * c45 + text_h)) - w for x, wd in zip(centers_px, widths)] + [0])
+
+    canvas = Image.new("RGB", (w + right, h + top), bgc)
+    canvas.paste(Image.fromarray(rgb), (0, top))
+    draw = ImageDraw.Draw(canvas)
+    y_bottom = top + gel_top_px - gap
+    fill = tuple(int(c) for c in color)
+    for name, x, wd in zip(names, centers_px, widths):
+        if not name:
+            continue
+        if not angled:
+            draw.text((x, y_bottom), name, font=font, fill=fill, anchor="md")
+            continue
+        tw, th = wd + 2, text_h * 2
+        tile = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+        ImageDraw.Draw(tile).text((0, th / 2), name, font=font, fill=fill + (255,), anchor="lm")
+        rot = tile.rotate(45, resample=Image.BICUBIC, expand=True)
+        px = rot.width / 2 - tw / 2 * c45   # where the start of the text ended up
+        py = rot.height / 2 + tw / 2 * c45
+        canvas.paste(rot, (int(round(x - px)), int(round(y_bottom - py))), rot)
+    info = {
+        "font_size_px": size,
+        "angled_45deg": angled,
+        "color": list(fill),
+        "added_top_px": top,
+        "added_right_px": right,
+        "missing_glyphs": missing_glyphs(font, "".join(names)),
+    }
+    return np.ascontiguousarray(np.asarray(canvas)), info
+
+
+# --------------------------------------------------------------------------
 # QC image
 # --------------------------------------------------------------------------
 def _display(arr):
@@ -459,7 +549,8 @@ def _display(arr):
     return a
 
 
-def write_debug(path, arr, det, out, residual):
+def write_debug(path, arr, det, out, residual, lanes=None):
+    """lanes: optional (centres_px, well_width_px, gel_top_px, gel_height_px) in output coordinates."""
     target_h = 700
     left = _display(arr).copy()
     s1 = target_h / left.shape[0]
@@ -471,6 +562,12 @@ def write_debug(path, arr, det, out, residual):
     right = _display(out)
     s2 = target_h / right.shape[0]
     right = cv2.resize(right, None, fx=s2, fy=s2, interpolation=cv2.INTER_AREA)
+    if lanes:
+        centres, ww, gtop, gh = lanes
+        y_a, y_b = int(gtop * s2), int((gtop + 0.15 * gh) * s2)
+        for x in centres:  # predicted well outlines from the comb template
+            xa, xb = int((x - ww / 2) * s2), int((x + ww / 2) * s2)
+            cv2.rectangle(right, (xa, y_a), (xb, y_b), (255, 0, 200), 1, cv2.LINE_AA)
     cv2.putText(right, f"output; residual tilt {residual:+.3f} deg", (10, 28),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 120, 255), 2, cv2.LINE_AA)
     cv2.imwrite(str(path), np.hstack([left, np.full((target_h, 6, 3), 128, np.uint8), right]))
@@ -486,8 +583,19 @@ def process_file(src: Path, outdir: Path, args) -> str:
     if out_path.resolve() == src.resolve():
         raise ValueError("refusing to overwrite the input file")
     label_path = outdir / f"{stem}{args.suffix}_labeled.tif"
-    if out_path.exists() and not args.force and (not args.label or label_path.exists()):
+    preview_path = outdir / f"{stem}{args.suffix}_preview.png"
+    want_labeled = bool(args.label or args.lanes)
+    # --preview always reprocesses, so edited labels in a notebook block take effect.
+    if (out_path.exists() and not args.force and not args.preview
+            and (not want_labeled or label_path.exists())):
         return f"SKIP  {src.name} (output exists; use --force to redo)"
+    combs = comb_info = None
+    if args.lanes or args.comb:
+        if not (args.lanes and args.comb):
+            raise ValueError("--lanes and --comb must be used together")
+        combs = load_combs()
+        comb_info = comb_geometry(args.comb, combs)
+        lane_names = parse_lanes(args.lanes, len(comb_info[0]))
 
     arr, res, notes = read_tiff(src)
     det = detect_gel(arr)
@@ -512,25 +620,70 @@ def process_file(src: Path, outdir: Path, args) -> str:
     }
     write_tiff(out_path, out, res, json.dumps(provenance, separators=(",", ":")))
 
-    label_rec = None
-    if args.label:
-        text = args.label.replace("{name}", stem)
+    # Gel position inside the output image (the slab is centred by rotate_crop).
+    gel_w, gel_h = det["size"]
+    out_w, out_h = info["out_size"]
+    gel_left = (out_w - 1) / 2 - gel_w / 2
+    gel_top = (out_h - 1) / 2 - gel_h / 2
+
+    label_rec = lanes_rec = None
+    lanes_dbg = None
+    display = None
+    if want_labeled:
         font_path = Path(args.font) if args.font else DEFAULT_FONT
         if not font_path.is_file():
             raise FileNotFoundError(f"label font not found: {font_path} (use --font, or keep the fonts/ folder next to the script)")
-        labeled, finfo = draw_label(out, text, parse_color(args.label_color), args.pad, font_path, args.label_size)
-        if finfo["missing_glyphs"]:
-            warnings.append("label font has no glyph for: " + " ".join(finfo["missing_glyphs"]))
-        prov_l = dict(provenance, label=text, note="8-bit RGB display copy with burned-in text")
-        write_tiff(label_path, labeled, res, json.dumps(prov_l, separators=(",", ":")))
-        label_rec = {
-            "text": text,
-            "color": args.label_color,
-            **finfo,
-            "file": str(label_path.resolve()),
-            "sha256": sha256(label_path),
-            "note": "display copy: 8-bit RGB, text burned in; the plain aligned TIFF is unchanged",
-        }
+        display = to_display_rgb8(out)
+        prov_l = dict(provenance, note="8-bit RGB display copy with burned-in text")
+        text = None
+        if args.label:
+            text = args.label.replace("{name}", stem)
+            display, finfo = draw_label(display, text, parse_color(args.label_color), args.pad, font_path, args.label_size)
+            if finfo["missing_glyphs"]:
+                warnings.append("label font has no glyph for: " + " ".join(finfo["missing_glyphs"]))
+            prov_l["label"] = text
+        if comb_info:
+            fracs, pitch, ww = comb_info
+            centres = [gel_left + f * gel_w for f in fracs]
+            lanes_dbg = (centres, ww * gel_w, gel_top, gel_h)
+            color = parse_color(args.lane_color) if args.lane_color else None
+            display, linfo = draw_lanes(display, lane_names, centres[:len(lane_names)], pitch * gel_w,
+                                        gel_top, font_path, args.lane_size, color)
+            if linfo["missing_glyphs"]:
+                warnings.append("lane font has no glyph for: " + " ".join(linfo["missing_glyphs"]))
+            prov_l["lanes"] = lane_names
+            comb = combs["combs"][args.comb]
+            lanes_rec = {
+                "comb": args.comb,
+                "comb_spec": comb,
+                "system_spec": combs["systems"][comb["system"]],
+                "names": lane_names,
+                "well_centres_px_in_aligned": [round(c, 2) for c in centres],
+                "well_width_px": round(ww * gel_w, 2),
+                **linfo,
+                "note": "positions come from the comb template scaled to the detected gel width, not from the image",
+            }
+        write_tiff(label_path, display, res, json.dumps(prov_l, separators=(",", ":")))
+        if args.label:
+            label_rec = {
+                "text": text,
+                "color": args.label_color,
+                **finfo,
+            }
+        file_rec = {"file": str(label_path.resolve()), "sha256": sha256(label_path),
+                    "note": "display copy: 8-bit RGB, text burned in; the plain aligned TIFF is unchanged"}
+        label_rec = {**label_rec, **file_rec} if label_rec else None
+        if lanes_rec:
+            lanes_rec.update(file_rec)
+
+    preview_rec = None
+    if args.preview:
+        from PIL import Image
+        img = Image.fromarray(display if display is not None else to_display_rgb8(out))
+        if img.width > 1600:  # keep notebook previews light
+            img = img.resize((1600, round(img.height * 1600 / img.width)), Image.LANCZOS)
+        img.save(preview_path)
+        preview_rec = {"file": str(preview_path.resolve()), "note": "display-only PNG for notebooks"}
 
     record = {
         "tool": f"gel_autoalign {__version__}",
@@ -558,6 +711,8 @@ def process_file(src: Path, outdir: Path, args) -> str:
         "transform": info,
         "residual_tilt_after_deg": residual,
         "label": label_rec,
+        "lanes": lanes_rec,
+        "preview": preview_rec,
         "notes": notes,
         "warnings": warnings,
         "versions": {
@@ -570,7 +725,7 @@ def process_file(src: Path, outdir: Path, args) -> str:
     }
     log_path.write_text(json.dumps(record, indent=2))
     if args.debug:
-        write_debug(outdir / f"{stem}{args.suffix}_debug.png", arr, det, out, residual)
+        write_debug(outdir / f"{stem}{args.suffix}_debug.png", arr, det, out, residual, lanes_dbg)
 
     tag = "WARN" if warnings else "OK  "
     line = (
@@ -615,6 +770,16 @@ def main(argv=None):
                     help="label font size in pixels (default: automatic, shrinks to fit)")
     ap.add_argument("--font", default=None,
                     help="font file for the label (default: fonts/lmsans10-bold.otf, Latin Modern Sans Bold)")
+    ap.add_argument("--comb", help="comb template for lane labels (see combs.toml), e.g. mini-sub-15")
+    ap.add_argument("--lanes", help="lane labels, filled from the left: a count ('8' -> 1..8) or names "
+                    "separated by commas ('L,A1,,NTC'; an empty entry skips a well). Needs --comb")
+    ap.add_argument("--lane-size", type=int, default=None,
+                    help="lane label font size in pixels (default: automatic from the well spacing)")
+    ap.add_argument("--lane-color", default=None,
+                    help="lane label color: name, #RRGGBB or R,G,B (default: black or white, whichever contrasts)")
+    ap.add_argument("--preview", action="store_true",
+                    help="also write a PNG preview and print only its path (for org-mode/notebooks); "
+                    "always reprocesses")
     ap.add_argument("--debug", action="store_true", help="also write a side-by-side QC PNG")
     ap.add_argument("--force", action="store_true", help="reprocess even if output exists")
     ap.add_argument("--watch", action="store_true", help="keep watching the input folder(s) for new files")
@@ -630,7 +795,11 @@ def main(argv=None):
                 msg = f"FAIL  {f.name}: {exc}"
                 n_warn += 1
             n_warn += msg.startswith("WARN")
-            print(msg, flush=True)
+            # With --preview, stdout carries only the preview path (an org-babel file link).
+            print(msg, flush=True, file=sys.stderr if args.preview else sys.stdout)
+            preview = outdir / f"{f.stem}{args.suffix}_preview.png"
+            if args.preview and not msg.startswith("FAIL") and preview.exists():
+                print(preview.resolve(), flush=True)
         return n_warn
 
     if not args.watch:

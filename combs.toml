@@ -1,0 +1,56 @@
+# Comb templates for --comb / --lanes.
+#
+# How lane positions are computed:
+#   Every comb in a gel system starts its first well and ends its last well at
+#   the same place, given as fractions of the detected gel width (0 = left edge
+#   of the gel, 1 = right edge). Wells are evenly spaced between those two edges.
+#   Well widths (from the manufacturer) are converted to fractions using the
+#   system's gel_width_mm.
+#
+# To add your own comb, copy an entry and adjust it. To calibrate a new gel
+# system, image a gel with clearly visible wells and measure where the first
+# well's left edge and the last well's right edge fall across the gel width.
+
+[systems.mini-protean]
+description = "Bio-Rad Mini-PROTEAN hand-cast PAGE gels"
+first_well_left = 0.0573
+last_well_right = 0.9408
+# Not published for hand-cast gels; estimated from the 10-well calibration
+# image (5.08 mm wells measured at 61.5 px across a 1089 px gel).
+gel_width_mm = 90.0
+calibration = "Measured 2026-11-13 from a 10-well, 1.0 mm gel (wells visible as notches). Edge fit residual <= 1.3 px."
+
+[systems.mini-sub]
+description = "Bio-Rad Mini-Sub Cell GT agarose gels (7 cm wide tray)"
+first_well_left = 0.0522
+last_well_right = 0.9404
+gel_width_mm = 70.0
+calibration = "Measured 2026-11-13 from a 15-well, 1.5 mm gel (15 wells visible). Well-centre fit residual <= 3.3 px."
+
+[combs.mini-protean-10]
+system = "mini-protean"
+wells = 10
+well_width_mm = 5.08
+catalog = "Bio-Rad 1653359 (10-well, 1.0 mm)"
+status = "measured"
+
+[combs.mini-protean-15]
+system = "mini-protean"
+wells = 15
+well_width_mm = 3.35
+catalog = "Bio-Rad 1653360 (15-well, 1.0 mm)"
+status = "derived from the 10-well calibration; check with --debug on your first gel"
+
+[combs.mini-sub-8]
+system = "mini-sub"
+wells = 8
+well_width_mm = 5.54
+catalog = "Bio-Rad 1704463 (8-well, 1.5 mm, fixed height)"
+status = "derived from the 15-well calibration; check with --debug on your first gel"
+
+[combs.mini-sub-15]
+system = "mini-sub"
+wells = 15
+well_width_mm = 2.59
+catalog = "Bio-Rad 1704465 (15-well, 1.5 mm, fixed height)"
+status = "measured"

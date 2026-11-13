@@ -127,6 +127,8 @@ Add these at the end of the command, after the image or folder:
 | Make the label bigger or smaller | `--label-size 60` (in pixels; by default it's sized automatically) |
 | Use a different font | `--font /path/to/font.ttf` |
 | Leave more margin around the gel | `--pad 40` (in pixels; the default is 20) |
+| Label the lanes (see [Lane labels](#lane-labels)) | `--comb mini-sub-15 --lanes "1kb,A1,A2,NTC"` |
+| Save a PNG preview and print its path (for notebooks) | `--preview` |
 | Also save a "before / after" check image | `--debug` |
 | Keep running and process new images as they appear in a folder | `--watch` (press Ctrl+C to stop) |
 | Redo images that were already processed | `--force` |
@@ -141,6 +143,48 @@ The quotes around `"{name}"` are needed.
 
 To see every option, run `python gel_autoalign.py --help`.
 
+## Lane labels
+
+Tell the script which comb you used and what's in each lane. It works out where the wells are from the comb's layout and writes the names above the gel.
+
+```bash
+python gel_autoalign.py gel.tif --comb mini-sub-15 --lanes "1kb,WT,ΔabcA,,NTC"
+```
+
+- **`--lanes`** lists the names from left to right, separated by commas. Leave an entry empty (`,,`) to skip an unloaded well. Wells after the last name stay unlabeled. Typing just a number, such as `--lanes 8`, labels the lanes 1 to 8.
+- Short names are written horizontally. If any name is too wide for its lane, all the labels are written at 45°.
+- **`--lane-size`** sets the font size. **`--lane-color`** sets the color; by default it's black or white, whichever stands out against the background.
+
+Combs included:
+
+| `--comb` | Comb | Gel system |
+|---|---|---|
+| `mini-protean-10` | Bio-Rad 10-well, 1.0 mm (#1653359) | Mini-PROTEAN (PAGE) |
+| `mini-protean-15` | Bio-Rad 15-well, 1.0 mm (#1653360) | Mini-PROTEAN (PAGE) |
+| `mini-sub-8` | Bio-Rad 8-well, 1.5 mm (#1704463) | Mini-Sub Cell GT (agarose) |
+| `mini-sub-15` | Bio-Rad 15-well, 1.5 mm (#1704465) | Mini-Sub Cell GT (agarose) |
+
+**How it works.** The well positions are measured as a fraction of the gel's width, so they don't depend on the camera or zoom. The templates were measured from real gels made with the 10-well PAGE and 15-well agarose combs. The other two combs are calculated from those, assuming every comb in a system starts and ends its wells at the same place.
+
+**Check your first gel with each comb.** Run it with `--debug`. The check image outlines where the script expects each well in magenta, so you can see whether they line up with the real wells. This matters most for `mini-protean-15` and `mini-sub-8`, which haven't been checked against a real gel yet. If a gel was trimmed or damaged at the sides, the positions will shift with it.
+
+To add another comb, copy an entry in `combs.toml` and edit it. The comments in that file explain each value.
+
+## Using it from Emacs org-mode
+
+`--preview` saves a PNG of the result and prints only its path. That's the format org-babel needs to insert the image into your notebook:
+
+```org
+#+begin_src sh :results file link
+conda run -n gel-autoalign python ~/tools/gel-autoalign/gel_autoalign.py \
+  ~/notebook/gels/2026-11-13_PCR.tif --comb mini-sub-15 --lanes "1kb,A1,A2,NTC" --preview
+#+end_src
+```
+
+Press `C-c C-c` in the block. To see the image itself rather than a link, turn on inline images with `M-x org-display-inline-images`, or add `#+STARTUP: inlineimages` to the file. Any messages, such as warnings, are printed separately so they don't break the link.
+
+With `--preview`, the image is always reprocessed, so after editing the lane names you can just run the block again. The full-quality TIFFs and the `.json` record are saved to `aligned/` as usual. Point the command at a copy of the imager file, not the only original.
+
 ## What you get
 
 For an input called `gel1.tif`, the `aligned` folder will contain:
@@ -149,7 +193,8 @@ For an input called `gel1.tif`, the `aligned` folder will contain:
 |---|---|
 | `gel1_aligned.tif` | The straightened, cropped gel. It keeps the full quality of the original (same bit depth and resolution, lossless compression). |
 | `gel1_aligned.json` | A record of exactly what was done: the rotation angle, settings, file checksums and software versions. Keep it with your data. |
-| `gel1_aligned_labeled.tif` | Only made if you used `--label`. A labeled copy for slides and figures. |
+| `gel1_aligned_labeled.tif` | Only made if you used `--label` or `--lanes`. A labeled copy for slides and figures. |
+| `gel1_aligned_preview.png` | Only made if you used `--preview`. A display-only PNG for notebooks. |
 | `gel1_aligned_debug.png` | Only made if you used `--debug`. A side-by-side image showing what the script detected and the result. |
 
 ## Important limitations
@@ -186,6 +231,7 @@ conda env update -f environment.yml
 
 - The script is a single file, `gel_autoalign.py`. How it detects the gel: Gaussian blur → Otsu threshold → largest object → robust line fits to the four edges, starting from OpenCV's minimum-area rectangle. Rotation and cropping happen in one resampling step (cubic by default; set with `--interp`). If the tilt is below `--angle-tol`, it does an exact integer crop with no interpolation.
 - `environment.yml` is the file to install from, on any operating system. `environment.lock.yml` records the exact versions last tested on macOS (Apple Silicon). It's there for reproducibility and won't install on other platforms.
+- Lane positions come from the templates in `combs.toml`. For each gel system it stores where the first well's left edge and the last well's right edge fall, as fractions of the gel width. Wells are spaced evenly between those two edges, and each well's width is taken from the manufacturer's spec. The computed positions and the template used are written to the `.json` record. The script only places labels; it doesn't detect lanes in the image.
 - When the script is run from a git checkout, each `.json` record includes the script's git commit under `script_git`.
 - `.gitignore` excludes all TIFFs and `aligned/` folders, so gel images can't be committed by accident.
 
