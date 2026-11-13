@@ -190,6 +190,7 @@ Things to know:
 
 - **Use the full path to the environment's Python**, as above, not `conda activate` or `conda run`. Emacs launched from the Dock often doesn't have conda on its PATH, and the full path works no matter how Emacs was started. Adjust both paths if your Miniforge or the script lives somewhere else.
 - **Showing the image:** Doom Emacs refreshes inline images after a block runs. In plain Emacs, turn them on with `M-x org-display-inline-images`, or add `#+STARTUP: inlineimages` to the file.
+- **Choosing where outputs go:** add `-o some/folder`. A relative folder is created next to the notebook. This lets you point `gel` at the original imager file without writing anything into the raw-data folder, for example `"$gel" -o gels --comb ...`.
 - **Links are relative to the notebook,** for example `[[file:gels/aligned/..._preview.png]]`, as long as the gel is inside the notebook's folder. You can move or sync the notebook folder as a whole.
 - **Warnings:** if the script prints a `WARN`, the image is still inserted, and Emacs shows the warning in a separate buffer.
 - **Editing labels:** change the names and press `C-c C-c` again. With `--preview`, the gel is always reprocessed, and the old result is replaced.
