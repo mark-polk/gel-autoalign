@@ -699,8 +699,9 @@ def process_file(src: Path, outdir: Path, args) -> str:
     if args.preview:
         from PIL import Image
         img = Image.fromarray(display if display is not None else to_display_rgb8(out))
-        if img.width > 1600:  # keep notebook previews light
-            img = img.resize((1600, round(img.height * 1600 / img.width)), Image.LANCZOS)
+        pw = args.preview_width
+        if img.width > pw:  # sized for a notebook window; the TIFFs keep full resolution
+            img = img.resize((pw, round(img.height * pw / img.width)), Image.LANCZOS)
         img.save(preview_path)
         preview_rec = {"file": str(preview_path.resolve()), "note": "display-only PNG for notebooks"}
 
@@ -757,6 +758,16 @@ def process_file(src: Path, outdir: Path, args) -> str:
     return line
 
 
+def preview_link(path: Path) -> str:
+    """Path for a notebook link: relative to the working directory (the org file's folder
+    when run from org-babel) if the preview is inside it, absolute otherwise."""
+    p = path.resolve()
+    try:
+        return str(p.relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(p)
+
+
 def collect(inputs, suffix):
     files = []
     for item in inputs:
@@ -803,10 +814,14 @@ def main(argv=None):
     ap.add_argument("--preview", action="store_true",
                     help="also write a PNG preview and print only its path (for org-mode/notebooks); "
                     "always reprocesses")
+    ap.add_argument("--preview-width", type=int, default=800,
+                    help="maximum width of the --preview PNG in pixels (default 800)")
     ap.add_argument("--debug", action="store_true", help="also write a side-by-side QC PNG")
     ap.add_argument("--force", action="store_true", help="reprocess even if output exists")
     ap.add_argument("--watch", action="store_true", help="keep watching the input folder(s) for new files")
     args = ap.parse_args(argv)
+
+    previews = []
 
     def run(files):
         n_warn = 0
@@ -818,19 +833,31 @@ def main(argv=None):
                 msg = f"FAIL  {f.name}: {exc}"
                 n_warn += 1
             n_warn += msg.startswith("WARN")
-            # With --preview, stdout carries only the preview path (an org-babel file link).
-            print(msg, flush=True, file=sys.stderr if args.preview else sys.stdout)
+            # With --preview, stdout carries only the preview path (an org-babel file link), and
+            # stderr stays empty unless there is a problem: org-babel pops up any stderr output.
+            if not args.preview:
+                print(msg, flush=True)
+            elif not msg.startswith(("OK", "SKIP")):
+                print(msg, flush=True, file=sys.stderr)
             preview = outdir / f"{f.stem}{args.suffix}_preview.png"
             if args.preview and not msg.startswith("FAIL") and preview.exists():
-                print(preview.resolve(), flush=True)
+                previews.append(preview_link(preview))
         return n_warn
+
+    def emit_previews():
+        # No trailing newline: org-babel would put it inside the [[file:...]] link.
+        if previews:
+            sys.stdout.write("\n".join(previews))
+            sys.stdout.flush()
 
     if not args.watch:
         files = collect(args.inputs, args.suffix)
         if not files:
             print("no TIFF files found", file=sys.stderr)
             return 1
-        return 0 if run(files) == 0 else 2
+        n_warn = run(files)
+        emit_previews()
+        return 0 if n_warn == 0 else 2
 
     print("watching for new TIFFs (Ctrl+C to stop)...", flush=True)
     sizes, done = {}, set()

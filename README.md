@@ -128,7 +128,7 @@ Add these at the end of the command, after the image or folder:
 | Use a different font | `--font /path/to/font.ttf` |
 | Leave more margin around the gel | `--pad 40` (in pixels; the default is 20) |
 | Label the lanes (see [Lane labels](#lane-labels)) | `--comb mini-sub-15 --lanes "1kb,A1,A2,NTC"` |
-| Save a PNG preview and print its path (for notebooks) | `--preview` |
+| Save a PNG preview and print its path (for notebooks, see [org-mode](#using-it-from-emacs-org-mode)) | `--preview` |
 | Also save a "before / after" check image | `--debug` |
 | Keep running and process new images as they appear in a folder | `--watch` (press Ctrl+C to stop) |
 | Redo images that were already processed | `--force` |
@@ -172,18 +172,30 @@ To add another comb, copy an entry in `combs.toml` and edit it. The comments in 
 
 ## Using it from Emacs org-mode
 
-`--preview` saves a PNG of the result and prints only its path. That's the format org-babel needs to insert the image into your notebook:
+This lets you go straight from the imager to a labeled gel in your notebook.
 
-```org
-#+begin_src sh :results file link
-conda run -n gel-autoalign python ~/tools/gel-autoalign/gel_autoalign.py \
-  ~/notebook/gels/2026-11-13_PCR.tif --comb mini-sub-15 --lanes "1kb,A1,A2,NTC" --preview
-#+end_src
-```
+1. Copy the raw TIFF into a folder next to your notebook, for example `gels/`.
+2. Add a block like this, with the file name and your lane names:
 
-Press `C-c C-c` in the block. To see the image itself rather than a link, turn on inline images with `M-x org-display-inline-images`, or add `#+STARTUP: inlineimages` to the file. Any messages, such as warnings, are printed separately so they don't break the link.
+   ```org
+   #+begin_src sh :results file link :var gel="gels/2026-11-13 PCR.tif" lanes="1kb,A1,A2,,NTC"
+   ~/miniforge3/envs/gel-autoalign/bin/python ~/Documents/bonilla-lab/tools/gel-autoalign/gel_autoalign.py \
+     "$gel" --comb mini-sub-15 --lanes "$lanes" --preview
+   #+end_src
+   ```
 
-With `--preview`, the image is always reprocessed, so after editing the lane names you can just run the block again. The full-quality TIFFs and the `.json` record are saved to `aligned/` as usual. Point the command at a copy of the imager file, not the only original.
+3. Press `C-c C-c` in the block. The straightened, labeled gel appears under it.
+
+Things to know:
+
+- **Use the full path to the environment's Python**, as above, not `conda activate` or `conda run`. Emacs launched from the Dock often doesn't have conda on its PATH, and the full path works no matter how Emacs was started. Adjust both paths if your Miniforge or the script lives somewhere else.
+- **Showing the image:** Doom Emacs refreshes inline images after a block runs. In plain Emacs, turn them on with `M-x org-display-inline-images`, or add `#+STARTUP: inlineimages` to the file.
+- **Links are relative to the notebook,** for example `[[file:gels/aligned/..._preview.png]]`, as long as the gel is inside the notebook's folder. You can move or sync the notebook folder as a whole.
+- **Warnings:** if the script prints a `WARN`, the image is still inserted, and Emacs shows the warning in a separate buffer.
+- **Editing labels:** change the names and press `C-c C-c` again. With `--preview`, the gel is always reprocessed, and the old result is replaced.
+- **Preview size:** the preview PNG is at most 800 px wide; change that with `--preview-width`. The full-resolution TIFFs and the `.json` record are saved in `gels/aligned/` as usual.
+- File names with spaces or symbols, like the ChemiDoc's `SYBR® Gold`, work as long as they're in quotes.
+- Point the block at a **copy** of the imager file, not the only original.
 
 ## What you get
 
