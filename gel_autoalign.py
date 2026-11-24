@@ -217,11 +217,28 @@ def detect_gel(arr: np.ndarray):
     # Remove specks / dust, then keep the largest object.
     k = max(3, int(0.005 * max(h, w)) | 1)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    if not contours:
+
+    def largest_object(m):
+        m = cv2.morphologyEx(m, cv2.MORPH_OPEN, kernel)
+        cs, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        return max(cs, key=cv2.contourArea) if cs else None
+
+    cnt = largest_object(mask)
+    threshold_method = "otsu"
+    # Very dark/bright bands can dominate the contrast scale, so Otsu splits "bands vs
+    # everything" and the "gel" is a single band. If the object is implausibly small,
+    # retry halfway between the background and the gel body's typical (median) level,
+    # measured in the central half of the image where the gel normally sits.
+    if cnt is None or cv2.contourArea(cnt) < 0.05 * h * w:
+        centre = diff[h // 4:3 * h // 4, w // 4:3 * w // 4]
+        border_diff = np.abs(border - bg)
+        noise = 1.4826 * float(np.median(border_diff))
+        thr = max(0.5 * float(np.median(centre)), 4.0 * noise)
+        alt = largest_object(((diff > thr) * 255).astype(np.uint8))
+        if alt is not None and (cnt is None or cv2.contourArea(alt) > cv2.contourArea(cnt)):
+            cnt, threshold_method = alt, f"centre-median fallback (thr {thr:.3g})"
+    if cnt is None:
         raise ValueError("no gel-like object found")
-    cnt = max(contours, key=cv2.contourArea)
     solid = np.zeros_like(mask)
     cv2.drawContours(solid, [cnt], -1, 255, thickness=cv2.FILLED)  # fills inner holes (bands, etc.)
     area = float(cv2.countNonZero(solid))
@@ -332,6 +349,7 @@ def detect_gel(arr: np.ndarray):
         "area_fraction": float(frac),
         "background_gray": bg,
         "otsu_sigma_px": float(sigma),
+        "threshold_method": threshold_method,
         "warnings": warnings,
     }
 
@@ -726,6 +744,7 @@ def process_file(src: Path, outdir: Path, args) -> str:
             "gel_corners_px": det["corners"].tolist(),
             "fill_ratio": det["fill_ratio"],
             "core_fill_ratio": det["core_fill_ratio"],
+            "threshold_method": det["threshold_method"],
             "gel_area_fraction": det["area_fraction"],
             "background_gray": det["background_gray"],
         },
